@@ -134,10 +134,10 @@ function gameOver() {
 // 更新状态显示
 function updateStatus() {
     const aiStatus = aiInterval ? 'AI运行中' : '未运行';
-    statusEl.textContent = `状态：${aiStatus} | 得分：${score}`;
+    statusEl.textContent = `状态：${aiStatus} | 得分：${score} | 蛇长：${snake.length}`;
 }
 
-// ==================== 优化后的AI核心逻辑 ====================
+// ==================== 优化后的智能AI核心逻辑 ====================
 
 /**
  * 计算两个点之间的曼哈顿距离
@@ -150,55 +150,72 @@ function manhattanDistance(a, b) {
 }
 
 /**
- * 深度优先搜索(DFS)检查从起点是否可达终点
+ * BFS寻找从起点到终点的最短路径
  * @param {Object} start - 起点 {x,y}
  * @param {Object} end - 终点 {x,y}
- * @param {Set} visited - 已访问的坐标集合
- * @returns {boolean} 是否可达
+ * @returns {Array|null} 路径数组（包含方向），找不到返回null
  */
-function isReachable(start, end, visited = new Set()) {
-    // 到达终点
-    if (start.x === end.x && start.y === end.y) return true;
+function bfsFindPath(start, end) {
+    // 复制当前蛇身（排除尾巴，因为移动后尾巴会消失）
+    const tempSnake = [...snake];
+    tempSnake.pop(); // 模拟移动后的蛇身，避免误判
 
-    // 标记当前位置为已访问
-    const key = `${start.x},${start.y}`;
-    if (visited.has(key)) return false;
-    visited.add(key);
+    const queue = [{ pos: start, path: [] }];
+    const visited = new Set([`${start.x},${start.y}`]);
 
-    // 检查是否是有效位置（不在边界外、不是蛇身）
-    if (
-        start.x < 0 || start.x >= GRID_SIZE ||
-        start.y < 0 || start.y >= GRID_SIZE ||
-        snake.some(seg => seg.x === start.x && seg.y === start.y)
-    ) {
-        return false;
-    }
-
-    // 向四个方向探索
     const directions = [
-        { x: 0, y: -1 }, // up
-        { x: 0, y: 1 },  // down
-        { x: -1, y: 0 }, // left
-        { x: 1, y: 0 }   // right
+        { dir: 'up', x: 0, y: -1 },
+        { dir: 'down', x: 0, y: 1 },
+        { dir: 'left', x: -1, y: 0 },
+        { dir: 'right', x: 1, y: 0 }
     ];
 
-    for (const dir of directions) {
-        const next = { x: start.x + dir.x, y: start.y + dir.y };
-        if (isReachable(next, end, visited)) {
-            return true;
+    while (queue.length > 0) {
+        const { pos, path } = queue.shift();
+
+        // 到达终点，返回路径
+        if (pos.x === end.x && pos.y === end.y) {
+            return path;
+        }
+
+        // 探索四个方向
+        for (const dir of directions) {
+            const nextPos = {
+                x: pos.x + dir.x,
+                y: pos.y + dir.y
+            };
+            const key = `${nextPos.x},${nextPos.y}`;
+
+            // 检查是否有效：边界内、不在蛇身、未访问过
+            if (
+                nextPos.x >= 0 && nextPos.x < GRID_SIZE &&
+                nextPos.y >= 0 && nextPos.y < GRID_SIZE &&
+                !tempSnake.some(seg => seg.x === nextPos.x && seg.y === nextPos.y) &&
+                !visited.has(key)
+            ) {
+                visited.add(key);
+                queue.push({
+                    pos: nextPos,
+                    path: [...path, dir.dir]
+                });
+            }
         }
     }
 
-    return false;
+    return null; // 没有找到路径
 }
 
 /**
- * 计算一个位置的安全评分（周围可移动的方向数）
- * @param {Object} pos - {x,y}
- * @returns {number} 安全评分（越高越安全）
+ * 检查位置是否有逃生空间（避免死胡同）
+ * @param {Object} pos - 要检查的位置
+ * @returns {boolean} 是否有足够的逃生空间
  */
-function calculateSafetyScore(pos) {
-    let score = 0;
+function hasEscapeRoute(pos) {
+    const tempSnake = [...snake];
+    tempSnake.pop(); // 模拟移动后的蛇身
+
+    // 计算可移动的方向数
+    let escapeRoutes = 0;
     const directions = [
         { x: 0, y: -1 }, // up
         { x: 0, y: 1 },  // down
@@ -207,33 +224,44 @@ function calculateSafetyScore(pos) {
     ];
 
     for (const dir of directions) {
-        const testPos = { x: pos.x + dir.x, y: pos.y + dir.y };
-        // 检查位置是否有效且不是蛇身
+        const testPos = {
+            x: pos.x + dir.x,
+            y: pos.y + dir.y
+        };
+
         if (
             testPos.x >= 0 && testPos.x < GRID_SIZE &&
             testPos.y >= 0 && testPos.y < GRID_SIZE &&
-            !snake.some(seg => seg.x === testPos.x && seg.y === testPos.y)
+            !tempSnake.some(seg => seg.x === testPos.x && seg.y === testPos.y)
         ) {
-            score++;
+            escapeRoutes++;
         }
     }
 
-    return score;
+    // 蛇越长，需要的逃生路径越多
+    const minEscapeRoutes = snake.length > GRID_SIZE * 2 ? 2 : 1;
+    return escapeRoutes >= minEscapeRoutes;
 }
 
-// AI决策方向：优化版 - 避免自陷 + 贪心寻食
+/**
+ * 智能AI决策方向：路径规划 + 生存优先
+ */
 function aiDecideDirection() {
     if (!gameRunning) return;
 
     const head = snake[0];
-    const possibleDirs = ['up', 'down', 'left', 'right'];
     const oppositeDir = {
         'up': 'down', 'down': 'up',
         'left': 'right', 'right': 'left'
     };
 
-    // 1. 筛选基础有效方向：不撞边界、不撞自身、不直接掉头
+    // 1. 先用BFS找去食物的最短路径
+    const pathToFood = bfsFindPath(head, food);
+
+    // 2. 收集所有有效方向（基础过滤）
+    const possibleDirs = ['up', 'down', 'left', 'right'];
     let validDirs = [];
+
     for (const dir of possibleDirs) {
         // 跳过反方向
         if (dir === oppositeDir[direction]) continue;
@@ -246,43 +274,45 @@ function aiDecideDirection() {
             case 'right': testHead.x += 1; break;
         }
 
-        // 检查是否有效
-        if (
+        // 检查位置有效性
+        const isPositionValid = (
             testHead.x >= 0 && testHead.x < GRID_SIZE &&
             testHead.y >= 0 && testHead.y < GRID_SIZE &&
             !snake.some(seg => seg.x === testHead.x && seg.y === testHead.y)
-        ) {
+        );
+
+        if (isPositionValid) {
+            // 计算该方向的评分
             validDirs.push({
                 dir: dir,
                 pos: testHead,
                 foodDist: manhattanDistance(testHead, food),
-                safety: calculateSafetyScore(testHead),
-                reachable: isReachable(testHead, food)
+                hasEscape: hasEscapeRoute(testHead),
+                isPathDir: pathToFood && pathToFood[0] === dir // 是否是最短路径的第一步
             });
         }
     }
 
     if (validDirs.length === 0) return;
 
-    // 2. 优先筛选能到达食物的方向（避免走进死胡同）
-    const reachableDirs = validDirs.filter(d => d.reachable);
-    const candidateDirs = reachableDirs.length > 0 ? reachableDirs : validDirs;
-
-    // 3. 排序策略：
-    // - 优先：能到达食物
-    // - 其次：离食物更近
-    // - 最后：安全评分更高（避免死胡同）
-    candidateDirs.sort((a, b) => {
-        // 先按距离排序（近的在前）
-        if (a.foodDist !== b.foodDist) {
-            return a.foodDist - b.foodDist;
+    // 3. 智能排序策略（优先级从高到低）
+    validDirs.sort((a, b) => {
+        // 优先级1：有逃生路径（生存第一）
+        if (a.hasEscape !== b.hasEscape) {
+            return a.hasEscape ? -1 : 1;
         }
-        // 距离相同则按安全评分排序（高的在前）
-        return b.safety - a.safety;
+
+        // 优先级2：是最短路径方向（优先吃食物）
+        if (a.isPathDir !== b.isPathDir) {
+            return a.isPathDir ? -1 : 1;
+        }
+
+        // 优先级3：离食物更近（贪心兜底）
+        return a.foodDist - b.foodDist;
     });
 
     // 4. 选择最优方向
-    nextDirection = candidateDirs[0].dir;
+    nextDirection = validDirs[0].dir;
 }
 
 // AI自动移动
