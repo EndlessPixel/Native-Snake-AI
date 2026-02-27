@@ -1,4 +1,3 @@
-/* 贪吃蛇游戏 - 极限美化CSS */
 :root {
     --primary: #6C63FF;
     --secondary: #36D1DC;
@@ -65,6 +64,33 @@ body::before {
     animation: bgPulse 20s ease-in-out infinite alternate;
 }
 
+/* 游戏标题样式 */
+h1 {
+    text-align: center;
+    margin-bottom: 2rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-shadow: 0 5px 15px rgba(108, 99, 255, 0.2);
+    position: relative;
+}
+
+h1::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 4px;
+    background: linear-gradient(to right, var(--primary), var(--secondary));
+    border-radius: 2px;
+}
+
 /* 游戏容器 */
 #game {
     background: linear-gradient(145deg,
@@ -102,6 +128,25 @@ body::before {
     background-size: 25px 25px;
     pointer-events: none;
     z-index: 0;
+}
+
+/* 游戏网格发光效果 */
+#game::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg,
+            transparent,
+            rgba(108, 99, 255, 0.1),
+            rgba(54, 209, 220, 0.1),
+            transparent);
+    border-radius: 18px;
+    z-index: -1;
+    animation: borderGlow 4s linear infinite;
+    pointer-events: none;
 }
 
 /* 蛇身体样式 */
@@ -236,23 +281,12 @@ button {
     min-width: 160px;
 }
 
-/* 按钮图标 */
-button i {
-    font-size: 1.2rem;
-    transition: transform 0.3s ease;
-}
-
 /* 按钮悬停效果 */
 button:hover {
     transform: translateY(-3px);
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
 }
 
-button:hover i {
-    transform: scale(1.2);
-}
-
-/* 按钮激活效果 */
 button:active {
     transform: translateY(-1px);
 }
@@ -358,71 +392,30 @@ button:focus:not(:active)::after {
     animation: statusPulse 3s ease-in-out infinite;
 }
 
-/* 状态图标 */
-#status i {
-    font-size: 1.5rem;
-    color: var(--info);
-    animation: iconFloat 3s ease-in-out infinite;
-}
-
-/* 游戏标题样式 */
-.game-title {
-    text-align: center;
-    margin-bottom: 2rem;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    font-size: 3rem;
-    font-weight: 800;
-    letter-spacing: 1px;
-    text-shadow: 0 5px 15px rgba(108, 99, 255, 0.2);
-    position: relative;
-}
-
-.game-title::after {
-    content: '';
+/* 键盘快捷键提示 */
+.shortcut-hint {
     position: absolute;
-    bottom: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100px;
-    height: 4px;
-    background: linear-gradient(to right, var(--primary), var(--secondary));
-    border-radius: 2px;
-}
-
-/* 分数显示 */
-.score-display {
-    display: flex;
-    gap: 2rem;
-    margin: 1.5rem 0;
-    justify-content: center;
-}
-
-.score-item {
-    text-align: center;
-    padding: 1rem 2rem;
-    background: var(--glass-bg);
-    border-radius: 12px;
-    border: 1px solid var(--glass-border);
-    min-width: 120px;
-}
-
-.score-label {
-    font-size: 0.9rem;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
     color: rgba(255, 255, 255, 0.7);
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+    display: none;
 }
 
-.score-value {
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--secondary);
-    text-shadow: 0 0 10px rgba(54, 209, 220, 0.5);
-    font-family: 'Courier New', monospace;
+@media (min-width: 1024px) {
+    .shortcut-hint {
+        display: block;
+    }
+}
+
+/* 游戏结束特效 */
+.game-over {
+    animation: shake 0.5s ease-in-out;
 }
 
 /* 动画定义 */
@@ -525,37 +518,6 @@ button:focus:not(:active)::after {
     }
 }
 
-@keyframes iconFloat {
-
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-
-    50% {
-        transform: translateY(-5px);
-    }
-}
-
-/* 游戏网格发光效果 */
-#game::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    background: linear-gradient(45deg,
-            transparent,
-            rgba(108, 99, 255, 0.1),
-            rgba(54, 209, 220, 0.1),
-            transparent);
-    border-radius: 18px;
-    z-index: -1;
-    animation: borderGlow 4s linear infinite;
-    pointer-events: none;
-}
-
 @keyframes borderGlow {
     0% {
         opacity: 0;
@@ -570,56 +532,26 @@ button:focus:not(:active)::after {
     }
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-    #game {
-        width: 90vw;
-        height: 90vw;
-        max-width: 400px;
-        max-height: 400px;
+@keyframes shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
     }
 
-    #control {
-        flex-direction: column;
-        align-items: center;
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+        transform: translateX(-5px);
     }
 
-    button {
-        width: 100%;
-        max-width: 300px;
-    }
-
-    .game-title {
-        font-size: 2rem;
-    }
-
-    .score-item {
-        padding: 0.75rem 1rem;
-        min-width: 100px;
-    }
-
-    .score-value {
-        font-size: 1.5rem;
-    }
-}
-
-@media (max-width: 480px) {
-    body {
-        padding: 1rem;
-    }
-
-    #game {
-        width: 95vw;
-        height: 95vw;
-    }
-
-    .game-title {
-        font-size: 1.8rem;
-    }
-
-    #status {
-        font-size: 0.9rem;
-        padding: 1rem;
+    20%,
+    40%,
+    60%,
+    80% {
+        transform: translateX(5px);
     }
 }
 
@@ -653,51 +585,46 @@ body>* {
     animation-delay: 0.3s;
 }
 
-/* 键盘快捷键提示 */
-.shortcut-hint {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: rgba(0, 0, 0, 0.5);
-    padding: 5px 10px;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.7);
-    -webkit-backdrop-filter: blur(5px);
-    backdrop-filter: blur(5px);
-    display: none;
-}
+/* 响应式设计 */
+@media (max-width: 768px) {
+    #game {
+        width: 90vw;
+        height: 90vw;
+        max-width: 400px;
+        max-height: 400px;
+    }
 
-@media (min-width: 1024px) {
-    .shortcut-hint {
-        display: block;
+    #control {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    button {
+        width: 100%;
+        max-width: 300px;
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+
+    #status {
+        font-size: 0.9rem;
+        padding: 1rem;
     }
 }
 
-/* 游戏结束特效 */
-.game-over {
-    animation: shake 0.5s ease-in-out;
-}
-
-@keyframes shake {
-
-    0%,
-    100% {
-        transform: translateX(0);
+@media (max-width: 480px) {
+    body {
+        padding: 1rem;
     }
 
-    10%,
-    30%,
-    50%,
-    70%,
-    90% {
-        transform: translateX(-5px);
+    #game {
+        width: 95vw;
+        height: 95vw;
     }
 
-    20%,
-    40%,
-    60%,
-    80% {
-        transform: translateX(5px);
+    h1 {
+        font-size: 1.8rem;
     }
 }
