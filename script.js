@@ -1,348 +1,396 @@
-// 游戏配置
-const GRID_SIZE = 20;  // 网格大小 20x20
-const CELL_SIZE = 20;  // 单元格大小
-const MOVE_INTERVAL = 150; // AI移动间隔(ms)
+        // ---------- 游戏配置 ----------
+        const GRID_SIZE = 20;
+        const CELL_SIZE = 20;
+        const BASE_MOVE_INTERVAL = 300;   // 基础间隔300ms，给模拟计算留足时间
 
-// 游戏状态
-let snake = [];        // 蛇身体 [{x,y}, ...]
-let food = { x: 0, y: 0 };  // 食物位置
-let direction = 'right'; // 当前方向
-let nextDirection = 'right'; // 下一个方向
-let score = 0;
-let aiInterval = null;
-let gameRunning = false;
+        // 游戏状态
+        let snake = [];          // 蛇身坐标 {x, y}
+        let food = { x: 0, y: 0 };
+        let direction = 'right';
+        let nextDirection = 'right';
+        let score = 0;
+        let aiInterval = null;
+        let gameRunning = false;
+        let gameWinFlag = false;  // 是否胜利结束
 
-// DOM元素
-const gameEl = document.getElementById('game');
-const startAIEl = document.getElementById('startAI');
-const stopAIEl = document.getElementById('stopAI');
-const resetEl = document.getElementById('reset');
-const statusEl = document.getElementById('status');
+        // DOM 元素
+        const gameEl = document.getElementById('game');
+        const startAIEl = document.getElementById('startAI');
+        const stopAIEl = document.getElementById('stopAI');
+        const resetEl = document.getElementById('reset');
+        const statusEl = document.getElementById('status');
 
-// 初始化游戏
-function initGame() {
-    // 重置蛇：初始位置在中间偏左
-    snake = [
-        { x: 5, y: 10 },
-        { x: 4, y: 10 },
-        { x: 3, y: 10 }
-    ];
-    direction = 'right';
-    nextDirection = 'right';
-    score = 0;
-    gameRunning = true;
-    generateFood();
-    renderGrid();
-    updateStatus();
-}
+        // ---------- 辅助函数 ----------
+        function copySnake(snakeArr) {
+            return snakeArr.map(seg => ({ ...seg }));
+        }
 
-// 生成食物（不在蛇身体上）
-function generateFood() {
-    let valid = false;
-    while (!valid) {
-        food.x = Math.floor(Math.random() * GRID_SIZE);
-        food.y = Math.floor(Math.random() * GRID_SIZE);
-        // 检查是否在蛇身上
-        valid = !snake.some(seg => seg.x === food.x && seg.y === food.y);
-    }
-}
+        // 动态步数: 根据蛇长和剩余空格决定前瞻深度 (范围 4~10)
+        function getDynamicSteps() {
+            const totalCells = GRID_SIZE * GRID_SIZE;
+            const emptyCells = totalCells - snake.length;
+            const len = snake.length;
+            
+            if (emptyCells <= 15) return 10;       // 快满了，深度模拟
+            if (emptyCells <= 30 || len > 300) return 8;
+            if (len > 200) return 7;
+            if (len > 100) return 6;
+            return 5;   // 基础5步
+        }
 
-// 渲染网格
-function renderGrid() {
-    gameEl.innerHTML = '';
-    // 设置游戏容器样式
-    gameEl.style.display = 'grid';
-    gameEl.style.gridTemplateColumns = `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`;
-    gameEl.style.gridTemplateRows = `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`;
-    gameEl.style.gap = '1px';
-    gameEl.style.width = `${GRID_SIZE * CELL_SIZE + GRID_SIZE - 1}px`;
-
-    for (let y = 0; y < GRID_SIZE; y++) {
-        for (let x = 0; x < GRID_SIZE; x++) {
-            const cell = document.createElement('div');
-            cell.className = 'empty';
-            cell.style.width = `${CELL_SIZE}px`;
-            cell.style.height = `${CELL_SIZE}px`;
-            cell.style.backgroundColor = '#f0f0f000';
-
-            // 判断是蛇身体还是食物
-            if (snake.some(seg => seg.x === x && seg.y === y)) {
-                cell.className = 'snake';
-                cell.style.backgroundColor = '#2ecc71';
-                // 蛇头特殊样式
-                if (x === snake[0].x && y === snake[0].y) {
-                    cell.style.backgroundColor = '#27ae60';
+        // 洪水填充: 计算从 startPos 出发能到达的格子数 (不考虑尾巴释放，直接按当前蛇身障碍)
+        // snakeArr 是完整的蛇身数组（模拟时传入）
+        function getReachableArea(startPos, snakeArr) {
+            const snakeSet = new Set(snakeArr.map(s => `${s.x},${s.y}`));
+            const queue = [{ x: startPos.x, y: startPos.y }];
+            const visited = new Set([`${startPos.x},${startPos.y}`]);
+            
+            while (queue.length) {
+                const { x, y } = queue.shift();
+                const neighbors = [
+                    { x, y: y-1 }, { x, y: y+1 },
+                    { x: x-1, y }, { x: x+1, y }
+                ];
+                for (const n of neighbors) {
+                    if (n.x < 0 || n.x >= GRID_SIZE || n.y < 0 || n.y >= GRID_SIZE) continue;
+                    const key = `${n.x},${n.y}`;
+                    if (visited.has(key)) continue;
+                    if (snakeSet.has(key)) continue;
+                    visited.add(key);
+                    queue.push(n);
                 }
-            } else if (x === food.x && y === food.y) {
-                cell.className = 'food';
-                cell.style.backgroundColor = '#e74c3c';
             }
-            gameEl.appendChild(cell);
-        }
-    }
-}
-
-// 移动蛇
-function moveSnake() {
-    if (!gameRunning) return;
-
-    // 更新方向
-    direction = nextDirection;
-    // 计算新蛇头
-    const head = { ...snake[0] };
-    switch (direction) {
-        case 'up': head.y -= 1; break;
-        case 'down': head.y += 1; break;
-        case 'left': head.x -= 1; break;
-        case 'right': head.x += 1; break;
-    }
-
-    // 碰撞检测：边界或自身
-    if (
-        head.x < 0 || head.x >= GRID_SIZE ||
-        head.y < 0 || head.y >= GRID_SIZE ||
-        snake.some(seg => seg.x === head.x && seg.y === head.y)
-    ) {
-        gameOver();
-        return;
-    }
-
-    // 添加新蛇头
-    snake.unshift(head);
-
-    // 判断是否吃到食物
-    if (head.x === food.x && head.y === food.y) {
-        score += 10;
-        generateFood();
-    } else {
-        // 没吃到就移除尾巴
-        snake.pop();
-    }
-
-    renderGrid();
-    updateStatus();
-}
-
-// 游戏结束
-function gameOver() {
-    gameRunning = false;
-    stopAI();
-    statusEl.textContent = `状态：游戏结束 | 得分：${score}`;
-    alert(`游戏结束！得分：${score}`);
-}
-
-// 更新状态显示
-function updateStatus() {
-    const aiStatus = aiInterval ? 'AI运行中' : '未运行';
-    statusEl.textContent = `状态：${aiStatus} | 得分：${score} | 蛇长：${snake.length}`;
-}
-
-// ==================== 优化后的智能AI核心逻辑 ====================
-
-/**
- * 计算两个点之间的曼哈顿距离
- * @param {Object} a - {x,y}
- * @param {Object} b - {x,y}
- * @returns {number} 曼哈顿距离
- */
-function manhattanDistance(a, b) {
-    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
-/**
- * BFS寻找从起点到终点的最短路径
- * @param {Object} start - 起点 {x,y}
- * @param {Object} end - 终点 {x,y}
- * @returns {Array|null} 路径数组（包含方向），找不到返回null
- */
-function bfsFindPath(start, end) {
-    // 复制当前蛇身（排除尾巴，因为移动后尾巴会消失）
-    const tempSnake = [...snake];
-    tempSnake.pop(); // 模拟移动后的蛇身，避免误判
-
-    const queue = [{ pos: start, path: [] }];
-    const visited = new Set([`${start.x},${start.y}`]);
-
-    const directions = [
-        { dir: 'up', x: 0, y: -1 },
-        { dir: 'down', x: 0, y: 1 },
-        { dir: 'left', x: -1, y: 0 },
-        { dir: 'right', x: 1, y: 0 }
-    ];
-
-    while (queue.length > 0) {
-        const { pos, path } = queue.shift();
-
-        // 到达终点，返回路径
-        if (pos.x === end.x && pos.y === end.y) {
-            return path;
+            return visited.size;
         }
 
-        // 探索四个方向
-        for (const dir of directions) {
-            const nextPos = {
-                x: pos.x + dir.x,
-                y: pos.y + dir.y
-            };
-            const key = `${nextPos.x},${nextPos.y}`;
+        // 在模拟中，给定蛇身和当前食物，重新生成一个不重叠的食物 (快速尝试)
+        function regenerateFoodForSimulation(snakeArr, currentFood) {
+            const total = GRID_SIZE * GRID_SIZE;
+            if (snakeArr.length >= total) return null; // 胜利无空位
+            // 随机尝试150次
+            for (let i = 0; i < 150; i++) {
+                const newFood = {
+                    x: Math.floor(Math.random() * GRID_SIZE),
+                    y: Math.floor(Math.random() * GRID_SIZE)
+                };
+                if (!snakeArr.some(seg => seg.x === newFood.x && seg.y === newFood.y)) {
+                    return newFood;
+                }
+            }
+            // 降级：顺序查找
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    if (!snakeArr.some(seg => seg.x === x && seg.y === y)) {
+                        return { x, y };
+                    }
+                }
+            }
+            return null; // 全满
+        }
 
-            // 检查是否有效：边界内、不在蛇身、未访问过
-            if (
-                nextPos.x >= 0 && nextPos.x < GRID_SIZE &&
-                nextPos.y >= 0 && nextPos.y < GRID_SIZE &&
-                !tempSnake.some(seg => seg.x === nextPos.x && seg.y === nextPos.y) &&
-                !visited.has(key)
-            ) {
-                visited.add(key);
-                queue.push({
-                    pos: nextPos,
-                    path: [...path, dir.dir]
-                });
+        // 模拟在某个方向走 steps 步，返回评分（越高越好）
+        // 内部贪心决策：每一步选择安全的、最接近食物的方向（避免递归，轻量）
+        function simulateDirection(initialSnake, initialFood, startDir, steps) {
+            let simSnake = copySnake(initialSnake);
+            let simFood = { ...initialFood };
+            let simDir = startDir;
+            let reward = 0;      // 吃到食物累计奖励
+            let ateCount = 0;
+            
+            for (let step = 0; step < steps; step++) {
+                const head = simSnake[0];
+                let newHead = { ...head };
+                switch (simDir) {
+                    case 'up':    newHead.y--; break;
+                    case 'down':  newHead.y++; break;
+                    case 'left':  newHead.x--; break;
+                    case 'right': newHead.x++; break;
+                }
+                
+                // 碰撞检测
+                if (newHead.x < 0 || newHead.x >= GRID_SIZE || newHead.y < 0 || newHead.y >= GRID_SIZE) {
+                    return -10000 + reward;   // 死亡惩罚极大
+                }
+                if (simSnake.some(seg => seg.x === newHead.x && seg.y === newHead.y)) {
+                    return -10000 + reward;
+                }
+                
+                // 移动
+                simSnake.unshift(newHead);
+                const ate = (newHead.x === simFood.x && newHead.y === simFood.y);
+                if (ate) {
+                    // 吃到食物奖励加大 (基础+200，每多吃一次额外累加)
+                    reward += 250;
+                    ateCount++;
+                    // 重新生成食物
+                    const newFood = regenerateFoodForSimulation(simSnake, simFood);
+                    if (!newFood) {
+                        // 模拟胜利，给予巨额奖励
+                        return 100000 + reward;
+                    }
+                    simFood = newFood;
+                    // 吃到食物不删尾巴，长度+1
+                } else {
+                    simSnake.pop();   // 没吃到删尾巴
+                }
+                
+                // 如果已经填满全场 => 胜利
+                if (simSnake.length === GRID_SIZE * GRID_SIZE) {
+                    return 100000 + reward;
+                }
+                
+                // ---------- 为下一步选择方向 (轻量贪心: 安全+距离优先) ----------
+                const opposite = { up:'down', down:'up', left:'right', right:'left' };
+                const possibleMoves = ['up', 'down', 'left', 'right'].filter(d => d !== opposite[simDir]);
+                let bestNextDir = null;
+                let bestDist = Infinity;
+                const curHead = simSnake[0];
+                
+                for (const d of possibleMoves) {
+                    let testHead = { ...curHead };
+                    switch (d) {
+                        case 'up':    testHead.y--; break;
+                        case 'down':  testHead.y++; break;
+                        case 'left':  testHead.x--; break;
+                        case 'right': testHead.x++; break;
+                    }
+                    // 边界或撞自身检查
+                    if (testHead.x < 0 || testHead.x >= GRID_SIZE || testHead.y < 0 || testHead.y >= GRID_SIZE) continue;
+                    if (simSnake.some(seg => seg.x === testHead.x && seg.y === testHead.y)) continue;
+                    const dist = Math.abs(testHead.x - simFood.x) + Math.abs(testHead.y - simFood.y);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestNextDir = d;
+                    }
+                }
+                
+                if (bestNextDir) {
+                    simDir = bestNextDir;
+                } else {
+                    // 无路可走，即将死亡
+                    return -8000 + reward;
+                }
+            }
+            
+            // 模拟结束，评估最终状态的生存空间 + 距离食物的吸引力
+            const finalHead = simSnake[0];
+            const finalArea = getReachableArea(finalHead, simSnake);
+            const distToFood = Math.abs(finalHead.x - simFood.x) + Math.abs(finalHead.y - simFood.y);
+            // 评分权重： 生存空间 * 12  + 吃到食物奖励 - 距离 * 3  
+            const finalScore = finalArea * 12 - distToFood * 3 + reward * 1.2;
+            return finalScore;
+        }
+
+        // ---------- AI 决策核心：前瞻评估每个方向 ----------
+        function aiDecideDirection() {
+            if (!gameRunning) return;
+            const head = snake[0];
+            const opposite = { up:'down', down:'up', left:'right', right:'left' };
+            const possibleDirs = ['up', 'down', 'left', 'right'].filter(d => d !== opposite[direction]);
+            
+            let bestDir = null;
+            let bestScore = -Infinity;
+            const steps = getDynamicSteps();   // 动态步数
+            
+            for (const dir of possibleDirs) {
+                // 快速过滤：第一步即撞墙/身的直接丢弃 (避免无效模拟)
+                let testHead = { ...head };
+                switch (dir) {
+                    case 'up':    testHead.y--; break;
+                    case 'down':  testHead.y++; break;
+                    case 'left':  testHead.x--; break;
+                    case 'right': testHead.x++; break;
+                }
+                if (testHead.x < 0 || testHead.x >= GRID_SIZE || testHead.y < 0 || testHead.y >= GRID_SIZE) continue;
+                if (snake.some(seg => seg.x === testHead.x && seg.y === testHead.y)) continue;
+                
+                const scoreVal = simulateDirection(snake, food, dir, steps);
+                if (scoreVal > bestScore) {
+                    bestScore = scoreVal;
+                    bestDir = dir;
+                }
+            }
+            
+            if (bestDir) {
+                nextDirection = bestDir;
+            } else {
+                // 保底：什么都不选就保持原方向（但这种情况极少，一般不会）
+                if (possibleDirs.length > 0) nextDirection = possibleDirs[0];
             }
         }
-    }
 
-    return null; // 没有找到路径
-}
-
-/**
- * 检查位置是否有逃生空间（避免死胡同）
- * @param {Object} pos - 要检查的位置
- * @returns {boolean} 是否有足够的逃生空间
- */
-function hasEscapeRoute(pos) {
-    const tempSnake = [...snake];
-    tempSnake.pop(); // 模拟移动后的蛇身
-
-    // 计算可移动的方向数
-    let escapeRoutes = 0;
-    const directions = [
-        { x: 0, y: -1 }, // up
-        { x: 0, y: 1 },  // down
-        { x: -1, y: 0 }, // left
-        { x: 1, y: 0 }   // right
-    ];
-
-    for (const dir of directions) {
-        const testPos = {
-            x: pos.x + dir.x,
-            y: pos.y + dir.y
-        };
-
-        if (
-            testPos.x >= 0 && testPos.x < GRID_SIZE &&
-            testPos.y >= 0 && testPos.y < GRID_SIZE &&
-            !tempSnake.some(seg => seg.x === testPos.x && seg.y === testPos.y)
-        ) {
-            escapeRoutes++;
-        }
-    }
-
-    // 蛇越长，需要的逃生路径越多
-    const minEscapeRoutes = snake.length > GRID_SIZE * 2 ? 2 : 1;
-    return escapeRoutes >= minEscapeRoutes;
-}
-
-/**
- * 智能AI决策方向：路径规划 + 生存优先
- */
-function aiDecideDirection() {
-    if (!gameRunning) return;
-
-    const head = snake[0];
-    const oppositeDir = {
-        'up': 'down', 'down': 'up',
-        'left': 'right', 'right': 'left'
-    };
-
-    // 1. 先用BFS找去食物的最短路径
-    const pathToFood = bfsFindPath(head, food);
-
-    // 2. 收集所有有效方向（基础过滤）
-    const possibleDirs = ['up', 'down', 'left', 'right'];
-    let validDirs = [];
-
-    for (const dir of possibleDirs) {
-        // 跳过反方向
-        if (dir === oppositeDir[direction]) continue;
-
-        const testHead = { ...head };
-        switch (dir) {
-            case 'up': testHead.y -= 1; break;
-            case 'down': testHead.y += 1; break;
-            case 'left': testHead.x -= 1; break;
-            case 'right': testHead.x += 1; break;
+        // ---------- 原有游戏逻辑（移动，碰撞，渲染）----------
+        function generateFood() {
+            if (snake.length >= GRID_SIZE * GRID_SIZE) {
+                gameWin();
+                return;
+            }
+            // 快速随机尝试
+            for (let i = 0; i < 1000; i++) {
+                const randX = Math.floor(Math.random() * GRID_SIZE);
+                const randY = Math.floor(Math.random() * GRID_SIZE);
+                if (!snake.some(seg => seg.x === randX && seg.y === randY)) {
+                    food = { x: randX, y: randY };
+                    return;
+                }
+            }
+            // 极端情况：遍历所有格子
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    if (!snake.some(seg => seg.x === x && seg.y === y)) {
+                        food = { x, y };
+                        return;
+                    }
+                }
+            }
+            gameWin();
         }
 
-        // 检查位置有效性
-        const isPositionValid = (
-            testHead.x >= 0 && testHead.x < GRID_SIZE &&
-            testHead.y >= 0 && testHead.y < GRID_SIZE &&
-            !snake.some(seg => seg.x === testHead.x && seg.y === testHead.y)
-        );
-
-        if (isPositionValid) {
-            // 计算该方向的评分
-            validDirs.push({
-                dir: dir,
-                pos: testHead,
-                foodDist: manhattanDistance(testHead, food),
-                hasEscape: hasEscapeRoute(testHead),
-                isPathDir: pathToFood && pathToFood[0] === dir // 是否是最短路径的第一步
-            });
+        function renderGrid() {
+            gameEl.innerHTML = '';
+            gameEl.style.display = 'grid';
+            gameEl.style.gridTemplateColumns = `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`;
+            gameEl.style.gridTemplateRows = `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`;
+            gameEl.style.gap = '1px';
+            gameEl.style.width = `${GRID_SIZE * CELL_SIZE + GRID_SIZE - 1}px`;
+            
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.style.width = `${CELL_SIZE}px`;
+                    cell.style.height = `${CELL_SIZE}px`;
+                    
+                    const isHead = (snake[0] && snake[0].x === x && snake[0].y === y);
+                    const isSnakeBody = !isHead && snake.some(seg => seg.x === x && seg.y === y);
+                    
+                    if (isHead) {
+                        cell.className = 'snake-head';
+                    } else if (isSnakeBody) {
+                        cell.className = 'snake';
+                    } else if (x === food.x && y === food.y) {
+                        cell.className = 'food';
+                    } else {
+                        cell.className = 'empty';
+                        cell.style.backgroundColor = '#f0f0f000';
+                    }
+                    gameEl.appendChild(cell);
+                }
+            }
         }
-    }
 
-    if (validDirs.length === 0) return;
-
-    // 3. 智能排序策略（优先级从高到低）
-    validDirs.sort((a, b) => {
-        // 优先级1：有逃生路径（生存第一）
-        if (a.hasEscape !== b.hasEscape) {
-            return a.hasEscape ? -1 : 1;
+        function moveSnake() {
+            if (!gameRunning) return;
+            
+            direction = nextDirection;
+            const head = { ...snake[0] };
+            switch (direction) {
+                case 'up':    head.y--; break;
+                case 'down':  head.y++; break;
+                case 'left':  head.x--; break;
+                case 'right': head.x++; break;
+                default: break;
+            }
+            
+            // 碰撞边界或自身
+            if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE ||
+                snake.some(seg => seg.x === head.x && seg.y === head.y)) {
+                gameOver();
+                return;
+            }
+            
+            snake.unshift(head);
+            const ate = (head.x === food.x && head.y === food.y);
+            if (ate) {
+                score += 10;
+                generateFood();   // 可能会触发胜利
+                if (!gameRunning) return;
+            } else {
+                snake.pop();
+            }
+            
+            renderGrid();
+            updateStatus();
+            
+            // 胜利检测 (generateFood 里可能触发胜利，但二次确认)
+            if (snake.length === GRID_SIZE * GRID_SIZE && !gameWinFlag) {
+                gameWin();
+            }
         }
-
-        // 优先级2：是最短路径方向（优先吃食物）
-        if (a.isPathDir !== b.isPathDir) {
-            return a.isPathDir ? -1 : 1;
+        
+        function gameOver() {
+            if (!gameRunning) return;
+            gameRunning = false;
+            gameWinFlag = false;
+            stopAI();
+            statusEl.textContent = `状态：💀 游戏结束 | 得分：${score} | 蛇长：${snake.length}`;
+            alert(`游戏结束！最终得分：${score}`);
         }
-
-        // 优先级3：离食物更近（贪心兜底）
-        return a.foodDist - b.foodDist;
-    });
-
-    // 4. 选择最优方向
-    nextDirection = validDirs[0].dir;
-}
-
-// AI自动移动
-function aiMove() {
-    aiDecideDirection();
-    moveSnake();
-}
-
-// 启动AI
-function startAI() {
-    if (aiInterval || !gameRunning) return;
-    aiInterval = setInterval(aiMove, MOVE_INTERVAL);
-    updateStatus();
-}
-
-// 停止AI
-function stopAI() {
-    if (!aiInterval) return;
-    clearInterval(aiInterval);
-    aiInterval = null;
-    updateStatus();
-}
-
-// 事件监听
-startAIEl.addEventListener('click', startAI);
-stopAIEl.addEventListener('click', stopAI);
-resetEl.addEventListener('click', () => {
-    stopAI();
-    initGame();
-});
-
-// 初始化
-initGame();
+        
+        function gameWin() {
+            if (!gameRunning) return;
+            gameRunning = false;
+            gameWinFlag = true;
+            stopAI();
+            statusEl.textContent = `状态：🏆 胜利！满分通关 | 得分：${score} | 蛇长：${snake.length}`;
+            alert(`🎉 恭喜获胜！完美通关！ 得分：${score}`);
+        }
+        
+        function updateStatus() {
+            const aiStatus = aiInterval ? '🤖 AI运行中' : '⏸️ 未运行';
+            statusEl.innerHTML = `状态：${aiStatus} | 得分：${score} | 蛇长：${snake.length} | 前瞻步数: ${getDynamicSteps()}`;
+        }
+        
+        // ---------- 重置 / 初始化 ----------
+        function initGame() {
+            stopAI();
+            // 初始蛇
+            snake = [
+                { x: 5, y: 10 },
+                { x: 4, y: 10 },
+                { x: 3, y: 10 }
+            ];
+            direction = 'right';
+            nextDirection = 'right';
+            score = 0;
+            gameRunning = true;
+            gameWinFlag = false;
+            generateFood();
+            renderGrid();
+            updateStatus();
+        }
+        
+        // AI 移动驱动
+        function aiMove() {
+            if (!gameRunning) return;
+            aiDecideDirection();
+            moveSnake();
+        }
+        
+        function startAI() {
+            if (!gameRunning) {
+                // 游戏未运行或已结束，重置后再启动
+                initGame();
+            }
+            if (aiInterval) clearInterval(aiInterval);
+            aiInterval = setInterval(aiMove, BASE_MOVE_INTERVAL);
+            updateStatus();
+        }
+        
+        function stopAI() {
+            if (aiInterval) {
+                clearInterval(aiInterval);
+                aiInterval = null;
+                updateStatus();
+            }
+        }
+        
+        // 事件绑定
+        startAIEl.addEventListener('click', startAI);
+        stopAIEl.addEventListener('click', stopAI);
+        resetEl.addEventListener('click', () => {
+            stopAI();
+            initGame();
+        });
+        
+        // 启动游戏初始
+        initGame();
