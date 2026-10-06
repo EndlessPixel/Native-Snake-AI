@@ -19,14 +19,13 @@ const resetEl = document.getElementById('reset');
 const statusEl = document.getElementById('status');
 
 // ============================================================
-// ============ 极限优化：贪吃蛇 AI 内核 ============
+// ============ 贪吃蛇 AI 内核（保守版：尾巴当障碍）============
 // ============================================================
 const N = GRID_SIZE * GRID_SIZE;
 
 const _occ      = new Uint8Array(N);
 const _visited  = new Uint8Array(N);
 const _dist     = new Int32Array(N);
-const _parent   = new Int32Array(N);
 const _queue    = new Int32Array(N);
 
 const _DIRS     = ['up', 'down', 'left', 'right'];
@@ -35,21 +34,18 @@ const _DELTA    = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
 
 const _idx = (x, y) => y * GRID_SIZE + x;
 
-function _buildOcc(snakeArr, startX, startY, ignoreTail) {
+// ★ 不再有 ignoreTail —— 尾巴永远是障碍
+function _buildOcc(snakeArr, startX, startY) {
     _occ.fill(0);
     for (let i = 0; i < snakeArr.length; i++) {
         _occ[_idx(snakeArr[i].x, snakeArr[i].y)] = 1;
     }
-    if (ignoreTail && snakeArr.length > 1) {
-        const t = snakeArr[snakeArr.length - 1];
-        _occ[_idx(t.x, t.y)] = 0;
-    }
     if (startX >= 0) _occ[_idx(startX, startY)] = 0;
 }
 
-function _bfsDist(snakeArr, sx, sy, tx, ty, ignoreTail) {
+function _bfsDist(snakeArr, sx, sy, tx, ty) {
     if (sx === tx && sy === ty) return 0;
-    _buildOcc(snakeArr, sx, sy, ignoreTail);
+    _buildOcc(snakeArr, sx, sy);
     _dist.fill(-1);
     let qh = 0, qt = 0;
     const sk = _idx(sx, sy), tk = _idx(tx, ty);
@@ -69,8 +65,8 @@ function _bfsDist(snakeArr, sx, sy, tx, ty, ignoreTail) {
     return Infinity;
 }
 
-function _bfsCount(snakeArr, sx, sy, ignoreTail) {
-    _buildOcc(snakeArr, sx, sy, ignoreTail);
+function _bfsCount(snakeArr, sx, sy) {
+    _buildOcc(snakeArr, sx, sy);
     _visited.fill(0);
     let qh = 0, qt = 0;
     const sk = _idx(sx, sy);
@@ -96,44 +92,59 @@ function _evaluateMove(dir) {
 
     if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) return -Infinity;
 
-    const ateFood = (nx === food.x && ny === food.y);
-    const len = snake.length;
-    const tailIdx = len - 1;
-
-    for (let i = 0; i < len; i++) {
-        if (!ateFood && i === tailIdx) continue;
+    // ★ 保守碰撞：任何蛇身格（含尾巴）都不可进入
+    for (let i = 0; i < snake.length; i++) {
         if (snake[i].x === nx && snake[i].y === ny) return -Infinity;
     }
 
+    const ateFood = (nx === food.x && ny === food.y);
+    const len = snake.length;
     const newLen = ateFood ? len + 1 : len;
     if (newLen >= N) return 1e12;
 
+    // 构建新蛇（未吃到食物时尾巴移除）
     const newSnake = new Array(newLen);
     newSnake[0] = { x: nx, y: ny };
     const copyCount = ateFood ? len : len - 1;
     for (let i = 0; i < copyCount; i++) newSnake[i + 1] = snake[i];
 
+    // 自由度检查
+    let freeNeighbors = 0;
+    for (let di = 0; di < 4; di++) {
+        const d = _DIRS[di];
+        const ex = nx + _DELTA[d][0];
+        const ey = ny + _DELTA[d][1];
+        if (ex < 0 || ex >= GRID_SIZE || ey < 0 || ey >= GRID_SIZE) continue;
+        let blocked = false;
+        for (let i = 0; i < newLen; i++) {
+            if (newSnake[i].x === ex && newSnake[i].y === ey) { blocked = true; break; }
+        }
+        if (!blocked) freeNeighbors++;
+    }
+    if (freeNeighbors === 0) return -1e8;   // 走进去立死
+
+    // 安全性：新头能否到达新尾（作为目标，不是通道）
     const newTail = newSnake[newLen - 1];
-    const canReachTail = isFinite(_bfsDist(newSnake, nx, ny, newTail.x, newTail.y, true));
+    const canReachTail = isFinite(_bfsDist(newSnake, nx, ny, newTail.x, newTail.y));
 
     if (ateFood) {
         if (canReachTail) return 1e9;
-        const space = _bfsCount(newSnake, nx, ny, true);
+        const space = _bfsCount(newSnake, nx, ny);
         return space * 10;
     }
 
     if (!canReachTail) {
-        const space = _bfsCount(newSnake, nx, ny, true);
+        const space = _bfsCount(newSnake, nx, ny);
         return space * 5 - 100000;
     }
 
-    const foodDist = _bfsDist(newSnake, nx, ny, food.x, food.y, true);
+    const foodDist = _bfsDist(newSnake, nx, ny, food.x, food.y);
     if (!isFinite(foodDist)) {
-        const space = _bfsCount(newSnake, nx, ny, true);
-        return 10000 + space;
+        const space = _bfsCount(newSnake, nx, ny);
+        return 10000 + space + freeNeighbors * 500;
     }
 
-    return 50000 - foodDist * 100;
+    return 50000 - foodDist * 100 + freeNeighbors * 100;
 }
 
 function aiDecideDirection() {
@@ -203,7 +214,7 @@ function renderGrid() {
     }
 }
 
-// ★ 修复：引擎与 AI 使用相同的尾巴规则
+// ★ 保守移动：尾巴永远是障碍，与 AI 完全一致
 function moveSnake() {
     if (!gameRunning) return;
     direction = nextDirection;
@@ -216,22 +227,18 @@ function moveSnake() {
     }
 
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-        gameOver();
-        return;
+        gameOver(); return;
     }
 
-    const ate = (head.x === food.x && head.y === food.y);
-
-    const tailIdx = snake.length - 1;
+    // 碰撞检测：任何蛇身格（含尾巴）都不可进入
     for (let i = 0; i < snake.length; i++) {
-        if (!ate && i === tailIdx) continue;
         if (snake[i].x === head.x && snake[i].y === head.y) {
-            gameOver();
-            return;
+            gameOver(); return;
         }
     }
 
     snake.unshift(head);
+    const ate = (head.x === food.x && head.y === food.y);
     if (ate) {
         score += 10;
         generateFood();
