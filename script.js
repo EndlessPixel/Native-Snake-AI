@@ -3,7 +3,6 @@ const GRID_SIZE = 20;
 const CELL_SIZE = 20;
 const BASE_MOVE_INTERVAL = 80;
 
-// 游戏状态
 let snake = [];
 let food = { x: 0, y: 0 };
 let direction = 'right';
@@ -13,7 +12,6 @@ let aiInterval = null;
 let gameRunning = false;
 let gameWinFlag = false;
 
-// DOM 元素
 const gameEl = document.getElementById('game');
 const startAIEl = document.getElementById('startAI');
 const stopAIEl = document.getElementById('stopAI');
@@ -21,7 +19,7 @@ const resetEl = document.getElementById('reset');
 const statusEl = document.getElementById('status');
 
 // ============================================================
-// ============ 极限优化：高性能贪吃蛇 AI 内核 ============
+// ============ 极限优化：贪吃蛇 AI 内核 ============
 // ============================================================
 const N = GRID_SIZE * GRID_SIZE;
 
@@ -44,7 +42,7 @@ function _buildOcc(snakeArr, startX, startY, ignoreTail) {
     }
     if (ignoreTail && snakeArr.length > 1) {
         const t = snakeArr[snakeArr.length - 1];
-        _occ[_idx(t.x, t.y)] = 0;   // 尾巴即将腾出
+        _occ[_idx(t.x, t.y)] = 0;
     }
     if (startX >= 0) _occ[_idx(startX, startY)] = 0;
 }
@@ -91,7 +89,6 @@ function _bfsCount(snakeArr, sx, sy, ignoreTail) {
     return count;
 }
 
-// ---------- 单方向评分 ----------
 function _evaluateMove(dir) {
     const head = snake[0];
     const [dx, dy] = _DELTA[dir];
@@ -103,14 +100,13 @@ function _evaluateMove(dir) {
     const len = snake.length;
     const tailIdx = len - 1;
 
-    // 自身碰撞（没吃到时尾巴会移开）
     for (let i = 0; i < len; i++) {
         if (!ateFood && i === tailIdx) continue;
         if (snake[i].x === nx && snake[i].y === ny) return -Infinity;
     }
 
     const newLen = ateFood ? len + 1 : len;
-    if (newLen >= N) return 1e12;   // 通关
+    if (newLen >= N) return 1e12;
 
     const newSnake = new Array(newLen);
     newSnake[0] = { x: nx, y: ny };
@@ -120,27 +116,23 @@ function _evaluateMove(dir) {
     const newTail = newSnake[newLen - 1];
     const canReachTail = isFinite(_bfsDist(newSnake, nx, ny, newTail.x, newTail.y, true));
 
-    // ===== 关键：吃 > 接近吃 =====
     if (ateFood) {
-        if (canReachTail) return 1e9;        // 安全吃 → 最高
+        if (canReachTail) return 1e9;
         const space = _bfsCount(newSnake, nx, ny, true);
         return space * 10;
     }
 
-    // 危险：先续命
     if (!canReachTail) {
         const space = _bfsCount(newSnake, nx, ny, true);
         return space * 5 - 100000;
     }
 
-    // 安全但没吃到 → 看能否接近食物
     const foodDist = _bfsDist(newSnake, nx, ny, food.x, food.y, true);
     if (!isFinite(foodDist)) {
         const space = _bfsCount(newSnake, nx, ny, true);
         return 10000 + space;
     }
 
-    // 能到食物但当前没吃到 → 分数必须远低于「直接吃到」
     return 50000 - foodDist * 100;
 }
 
@@ -211,6 +203,7 @@ function renderGrid() {
     }
 }
 
+// ★ 修复：引擎与 AI 使用相同的尾巴规则
 function moveSnake() {
     if (!gameRunning) return;
     direction = nextDirection;
@@ -222,14 +215,23 @@ function moveSnake() {
         case 'right': head.x++; break;
     }
 
-    if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE ||
-        snake.some(s => s.x === head.x && s.y === head.y)) {
+    if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
         gameOver();
         return;
     }
 
-    snake.unshift(head);
     const ate = (head.x === food.x && head.y === food.y);
+
+    const tailIdx = snake.length - 1;
+    for (let i = 0; i < snake.length; i++) {
+        if (!ate && i === tailIdx) continue;
+        if (snake[i].x === head.x && snake[i].y === head.y) {
+            gameOver();
+            return;
+        }
+    }
+
+    snake.unshift(head);
     if (ate) {
         score += 10;
         generateFood();
@@ -240,7 +242,6 @@ function moveSnake() {
 
     renderGrid();
     updateStatus();
-
     if (snake.length === N && !gameWinFlag) gameWin();
 }
 
